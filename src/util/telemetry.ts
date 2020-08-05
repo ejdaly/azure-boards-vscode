@@ -7,10 +7,12 @@ const _appInsights = require("applicationinsights");
 const _instrumentationKey = "4055bdd0-39f8-45ef-a48f-cf563234638d";
 
 export function startTelemetry() {
+  return;
   _appInsights.setup(_instrumentationKey).start();
 }
 
 export function trackTelemetryEvent(name: string) {
+  return;
   const currentOrganization = getCurrentOrganization();
   const organizationUri = currentOrganization ? currentOrganization.uri : "";
 
@@ -22,6 +24,7 @@ export function trackTelemetryEvent(name: string) {
 }
 
 export function trackTelemetryException(error: Error) {
+  return;
   const currentOrganization = getCurrentOrganization();
   const organizationUri = currentOrganization ? currentOrganization.uri : "";
 

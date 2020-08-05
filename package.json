@@ -69,7 +69,7 @@
       },
       {
         "command": "azure-boards.mention-work-item",
-        "title": "Mention work item in commit message",
+        "title": "Copy to clipboard",
         "icon": {
           "light": "resources/light/mention.svg",
           "dark": "resources/dark/mention.svg"
@@ -114,11 +114,6 @@
           "command": "azure-boards.mention-work-item",
           "when": "view == work-items && viewItem == work-item && config.git.enabled && gitOpenRepositoryCount != 0",
           "group": "inline"
-        },
-        {
-          "command": "azure-boards.checkout-branch",
-          "when": "view == work-items && viewItem == work-item && config.git.enabled && gitOpenRepositoryCount != 0",
-          "group": "inline@+1"
         }
       ]
     },
@@ -176,6 +171,11 @@
         "azure-boards.current-repo": {
           "title": "Current repo (UUID)",
           "description": "Current Azure Boards repo (UUID)",
+          "scope": "window"
+        },
+        "azure-boards.branch-prefix": {
+          "title": "Branch Prefix (e.g. username/, feature/)",
+          "description": "Branch Prefix",
           "scope": "window"
         }
       }

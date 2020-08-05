@@ -8,10 +8,14 @@ import { getCurrentOrganization, getQueries } from "../../configuration/configur
 import { ConfigurationCommands } from "../../configuration/commands";
 import { Commands } from "../../commands/commands";
 import { trackTelemetryException } from "../../util/telemetry";
-// import * as _ from "underscore";
 
-var _ = require("underscore");
-
+// See: 
+// https://code.visualstudio.com/api/extension-guides/tree-view
+// https://code.visualstudio.com/api/references/vscode-api#TreeView
+// https://stackoverflow.com/questions/52592853/how-to-create-a-tree-as-extension-for-vs-code
+//
+// TODO: should refactor this a little - the same logic is duplicated for parent and child nodes
+//
 export class WorkItemTreeNodeProvider
   implements vscode.TreeDataProvider<TreeNodeParent> {
   private _onDidChangeTreeData: vscode.EventEmitter<
@@ -24,6 +28,12 @@ export class WorkItemTreeNodeProvider
   getChildren(
     element?: TreeNodeParent | undefined
   ): vscode.ProviderResult<TreeNodeParent[]> {
+
+    // getChildren is called when the Tree Item / Node is activated / expanded
+    // 
+
+    // This is for the top level items - i.e. one item for each Query
+    //
     if (!element) {
       if (!vscode.workspace.workspaceFolders) {
         return [new NoOpenFolderNode()];
@@ -33,39 +43,33 @@ export class WorkItemTreeNodeProvider
         return [new NoConnectionNode()];
       }
 
-      // return [
-      //   new TreeNodeChildWorkItem("Assigned to me", "AssignedToMe"),
-      //   new TreeNodeChildWorkItem("My activity", "MyActivity"),
-      //   new TreeNodeChildWorkItem("Mentioned", "Mentioned"),
-      //   new TreeNodeChildWorkItem("Following", "Following")
-      // ];
-
+      // Get the collection of queries
+      // TODO: currently you have to specify a display name for the Query in the Settings, but
+      // we could of course get the name from the Azure API also
+      // The .id here is the UUID you see in the web interface (URI) for the Query...
+      //
       const queries = getQueries() || [];
-      console.log("queries");
-      console.log(queries);
       const top_level_items = [];
-      for (let q of queries) {
-        console.log(q);
-        top_level_items.push(new TreeNodeChildWorkItem(q.name, q.id));
+      for (let query of queries) {
+        top_level_items.push(new TreeNodeChildWorkItem(query.name, query.id));
       }
       return top_level_items;
-      // return queries?.map(({ name, id }) => {
-      //   return new TreeNodeChildWorkItem(name, id)
-      // });
-
-      // return [
-      //   new TreeNodeChildWorkItem("Query1", "asdf")
-      // ];
     }
 
-    console.log("element");
-    console.log({ element });
+    // If we have an element but no data, then this is a Work Item with no parent
+    // (so it's going to be at the top of the tree, within a query)
+    // Once we call element.getWorkItemData() here, we will set this.data on the element
+    // and so for child nodes, we skip on to the next block...
+    // element.getWorkItemData() is where all the fetching from Azure API happens. We populate
+    // all the WorkItems for each Query, and use that below for each tree level...
+    //
     if (!element.data) {
-      console.log("returning getWorkItemData");
       return element.getWorkItemData();
     }
 
-    console.log("returning getWorkItemChildren");
+    // This is pretty simple. We already have the data - we are just searching for items whose WorkItem.parent is
+    // the current element
+    //
     return element.getWorkItemChildren();
   }
 
@@ -85,7 +89,6 @@ export class TreeNodeParent extends vscode.TreeItem {
   constructor(
     public readonly label: string,
     collapsibleState: vscode.TreeItemCollapsibleState =
-      // vscode.TreeItemCollapsibleState.None
       vscode.TreeItemCollapsibleState.Collapsed
   ) {
     super(label, collapsibleState);
@@ -96,10 +99,6 @@ export class TreeNodeParent extends vscode.TreeItem {
   }
 
   async getWorkItemChildren(): Promise<TreeNodeParent[]> {
-    return [];
-  }
-
-  async getWorkItemsForNode(): Promise<TreeNodeParent[]> {
     return [];
   }
 }
@@ -135,6 +134,9 @@ export class TreeNodeChildWorkItem extends TreeNodeParent {
     this.data = null;
   }
 
+  // Fetch all the data, set it on .data, and then call getWorkItemChildren()
+  // Returns a promise resolving to the array of Work Item Nodes (same as getWorkItemChildren())
+  //
   async getWorkItemData(): Promise<TreeNodeParent[]> {
     try {
       //go get the work items from the mywork provider
@@ -142,18 +144,11 @@ export class TreeNodeChildWorkItem extends TreeNodeParent {
 
       //get mashed list of workitems from the myworkprovider
       const workItems = await myWorkProvider.getMyWorkItems(this.type);
-      console.log("getWorkItemData");
-      console.log({ workItems });
       this.data = workItems;
-
-      const work_item_children = await this.getWorkItemChildren();
-      console.log({ work_item_children });
-
-      return work_item_children;
+      return await this.getWorkItemChildren();
     } catch (e) {
       // track telemetry exception
       trackTelemetryException(e);
-
       console.error(e);
     }
 
@@ -162,69 +157,29 @@ export class TreeNodeChildWorkItem extends TreeNodeParent {
 
   async getWorkItemChildren(): Promise<TreeNodeParent[]> {
     try {
-      console.log(`getWorkItemChildren: ${this.workItemId}`);
-      console.log({ this_: this });
+
+      // This is a bit hacky but it's fine. We add the .workItemId property when creating the WorkItemNode() below.
+      // So, once you call this function on a Node - that Node should have the .workItemId set, and
+      // all we need to do is find the elements of this.data that have .workItemParent equal to our .workItemId
+      //
       const children = this.data.filter((wi = {}) => {
-        const { workItemParent } = wi;
-        return (workItemParent == this.workItemId);
+        return (wi.workItemParent == this.workItemId);
       });
+
+      // Default is vscode.TreeItemCollapsibleState.Collapsed
+      // But if there are no children - we don't want that...
+      //
       if (!children.length) this.collapsibleState = vscode.TreeItemCollapsibleState.None;
-      // return this.data.map(wi => new WorkItemNode(wi));
+
+      // Note: we pass in this.data recursively to each new node we create
+      // So, all Nodes have a reference to this - and each one will independently pick out
+      // it's children..
+      // Could be more efficient / cleaner but it's fine for now...
+      //
       return children.map(wi => new WorkItemNode(wi, this.data));
     } catch (e) {
       // track telemetry exception
       trackTelemetryException(e);
-
-      console.error(e);
-    }
-
-    return [];
-  }
-
-  async getWorkItemsForNode(): Promise<TreeNodeParent[]> {
-    try {
-      //go get the work items from the mywork provider
-      const myWorkProvider: MyWorkProvider = new MyWorkProvider();
-
-      //get mashed list of workitems from the myworkprovider
-      const workItems = await myWorkProvider.getMyWorkItems(this.type);
-      this.data = workItems;
-
-      console.log("getWorkItemsForNode");
-      console.log({ workItems });
-
-      const children = {};
-      for (let i in workItems) {
-        const wi = workItems[i];
-        children[i] = _.where(workItems, {
-          workItemParent: wi.workItemId
-        });
-        console.log(wi);
-        console.log(children[i]);
-      }
-
-      // for (let i in Object.keys(children)) {
-
-      // }
-
-      // function createNodeWithChildren(workItem) {
-      //   const { workItemId } = workItem;
-      //   const childs = children[workItemId];
-      //   if (childs.length) {
-
-      //   } else {
-      //     return new WorkItemNode(workItem);
-      //   }
-      // }
-
-      // return workItems.map(wi => new WorkItemNode(wi));
-      const workItems_ = workItems.map(wi => new WorkItemNode(wi, []));
-
-      return workItems_;
-    } catch (e) {
-      // track telemetry exception
-      trackTelemetryException(e);
-
       console.error(e);
     }
 
@@ -239,31 +194,41 @@ export class WorkItemNode extends TreeNodeParent {
   public readonly editUrl: string;
 
   constructor(workItemComposite: WorkItemComposite, data) {
+
+    // So, we want to add the .workItemStateIcon as a prefix to the label of the tree item
+    // It will sit just next to the work item type icon...
+    //
     super(`${workItemComposite.workItemStateIcon} ${workItemComposite.workItemId} ${workItemComposite.workItemTitle}`);
 
     this.iconPath = vscode.Uri.parse(workItemComposite.workItemIcon);
     this.workItemId = +workItemComposite.workItemId;
+    this.workItemTitle = workItemComposite.workItemTitle;
     this.workItemType = workItemComposite.workItemType;
     this.editUrl = workItemComposite.url;
     this.contextValue = "work-item";
 
     const assignedTo = (workItemComposite.workItemAssignedTo || {}).displayName || "Unassigned";
-    // this.tooltip = "Open work item in Azure Boards";
-    // this.description = workItemComposite.workItemAssignedTo.displayName;
-    // this.description = (workItemComposite.workItemAssignedTo || {}).displayName;
+
+    // this.description is slighly smaller text, just after the main label
+    // Could probably remove the workItemState from this, now that we have the "icon"...
+    //
     this.description = `${assignedTo}  •  ${workItemComposite.workItemState}`;
 
-    // this.tooltip = workItemComposite.workItemDescription;
     this.tooltip = `${workItemComposite.workItemType}: ${workItemComposite.workItemId} ${workItemComposite.workItemTitle}\nAssigned to: ${assignedTo}\nState: ${workItemComposite.workItemState} `;
 
-
+    // Recursively pass a reference to the collection of work items
+    //
     this.data = data;
 
-    const children = this.data.filter((wi = {}) => {
+    // Default is vscode.TreeItemCollapsibleState.Collapsed
+    // But if there are no children - we don't want that...
+    // I think we have to do this in the constructor (I don't think it's possible to change that state later..)
+    // 
+    this.children = data.filter((wi = {}) => {
       const { workItemParent } = wi;
       return (workItemParent == this.workItemId);
     });
-    if (!children.length) this.collapsibleState = vscode.TreeItemCollapsibleState.None;
+    if (!this.children.length) this.collapsibleState = vscode.TreeItemCollapsibleState.None;
 
     this.command = {
       command: Commands.WorkItemPreview,
@@ -274,18 +239,10 @@ export class WorkItemNode extends TreeNodeParent {
 
   async getWorkItemChildren(): Promise<TreeNodeParent[]> {
     try {
-      console.log(`getWorkItemChildren: ${this.workItemId} `);
-      console.log({ this_: this });
-      const children = this.data.filter((wi = {}) => {
-        const { workItemParent } = wi;
-        return (workItemParent == this.workItemId);
-      });
-      // return this.data.map(wi => new WorkItemNode(wi));
-      return children.map(wi => new WorkItemNode(wi, this.data));
+      return this.children.map(wi => new WorkItemNode(wi, this.data));
     } catch (e) {
       // track telemetry exception
       trackTelemetryException(e);
-
       console.error(e);
     }
 

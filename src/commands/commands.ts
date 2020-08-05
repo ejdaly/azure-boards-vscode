@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 import * as vscode from "vscode";
-import * as path from 'path';
 import { GitExtension, Remote } from "../externals/git";
 import { trackTelemetryEvent } from "../util/telemetry";
 
@@ -10,7 +9,8 @@ import {
   getCurrentOrganization,
   getCurrentProject,
   getCurrentRepo,
-  getCurrentUser
+  getCurrentUser,
+  getBranchPrefix
 } from "../configuration/configuration";
 import { getWebApiForOrganization } from "../connection";
 
@@ -38,37 +38,28 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(Commands.WorkItemCreate, async args => {
-      console.log("WorkItemCreate");
-
       const currentOrganization = getCurrentOrganization();
-      if (!currentOrganization) {
-        return;
-      }
-
+      if (!currentOrganization) return;
       const currentProject = getCurrentProject();
-      console.log({ currentProject });
-      if (!currentProject) {
-        return;
-      }
+      if (!currentProject) return;
 
+      // TODO: these are hardcoded...
+      //
       const type = await vscode.window.showQuickPick([
         "Bug", "Issue", "Epic", "Feature", "Story", "Task"
       ], {
         prompt: "Work Item Type"
       });
-      console.log(type);
       if (!type) return;
 
       const title = await vscode.window.showInputBox({
         prompt: "Enter title"
       });
-      console.log(title);
       if (!title) return;
 
       const description = await vscode.window.showInputBox({
-        prompt: "Enter Description"
+        prompt: "Enter Description (Optional)"
       });
-      console.log(description);
 
       const webApi = await getWebApiForOrganization(currentOrganization);
       const witApi = await webApi.getWorkItemTrackingApi();
@@ -86,23 +77,31 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
     })
   );
 
+  // This is called when you click a work item
+  // TODO: when you update a work item, the tree will update here, but the webview
+  // will not
+  // If you just click the same link again it will work, but should happen automatically...
+  //
+
+  // reference to the webview
+  //
   var panel;
   vscode.commands.registerCommand(Commands.WorkItemPreview, async args => {
-    console.log("WorkItemPreview");
-    console.log({ args });
 
     if (!panel) {
 
       panel = vscode.window.createWebviewPanel(
         'azure-boards-preview', // Identifies the type of the webview. Used internally
-        'Azure Boards', // Title of the panel displayed to the user
+        'Azure Boards Preview', // Title of the panel displayed to the user
         vscode.ViewColumn.One, // Editor column to show the new webview panel in.
         {
-          enableScripts: true,
-          localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'resources', 'dark'))]
-        } // Webview options. More on these later.
+          enableScripts: true
+        }
       );
 
+      // Just unset the panel variable when we close the tab
+      // Should probably clean up listenters etc.., but maybe it cleans up that itself..?
+      //
       panel.onDidDispose(
         () => {
           panel = null
@@ -111,6 +110,8 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
         context.subscriptions
       );
 
+      // TODO: if any of the config settings are missing, this will just fail silent..
+      //
       const currentOrganization = getCurrentOrganization();
       if (!currentOrganization) return;
 
@@ -123,6 +124,8 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
       const currentUser = getCurrentUser();
       if (!currentUser) return;
 
+      const branchPrefix = getBranchPrefix();
+
       const webApi = await getWebApiForOrganization(currentOrganization);
       const witApi = await webApi.getWorkItemTrackingApi();
 
@@ -130,8 +133,9 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
         async message => {
           let { action, field, id, value } = message;
 
+          // Start a Work Item
+          //
           if (action === "startWork") {
-            console.log("startWork");
             const gitExtension = vscode.extensions.getExtension<GitExtension>(
               "vscode.git"
             );
@@ -146,7 +150,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage("git fetch");
+              // vscode.window.showInformationMessage("git fetch");
 
               try {
                 await repo.checkout(value);
@@ -155,7 +159,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git checkout ${value}`);
+              // vscode.window.showInformationMessage(`git checkout ${value}`);
 
               try {
                 await repo.pull();
@@ -164,37 +168,37 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git pull`);
+              // vscode.window.showInformationMessage(`git pull`);
 
               try {
+
+                // Doesn't seem to be a rebase API method for either of our Git APIs
+                // So, just spawn a process...
+                //
                 const { spawnSync } = require('child_process');
                 const decoder = new TextDecoder();
                 const rebase = spawnSync('git', ['rebase', 'origin/master'], {
                   cwd: vscode.workspace.rootPath
                 });
 
-                console.log("REBASE");
-                console.log({ rebase });
-                let { stderr, stdout, error } = rebase;
+                let { stderr, stdout } = rebase;
                 stderr = decoder.decode(stderr);
                 stdout = decoder.decode(stdout);
                 if (stderr) {
                   vscode.window.showErrorMessage(stderr);
                   return;
                 }
-                console.log(stderr);
-                console.log(stdout);
-                console.log(error);
-
               } catch (err) {
                 console.log(err);
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git rebase origin/master`);
+              // vscode.window.showInformationMessage(`git rebase origin/master`);
 
+              // Update status to Active, and assign to currentUser
+              //
               try {
-                let r = await witApi.updateWorkItem(null, [{
+                await witApi.updateWorkItem(null, [{
                   "op": "replace",
                   "path": `/fields/System.AssignedTo`,
                   "value": currentUser
@@ -203,8 +207,6 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                   "path": `/fields/System.State`,
                   "value": "Active"
                 }], id);
-                console.log("R")
-                console.log(r);
               } catch (err) {
                 console.log(err);
                 vscode.window.showErrorMessage(err.stderr);
@@ -213,10 +215,13 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
               return;
             }
+            vscode.window.showInformationMessage(`Done`);
+            await vscode.commands.executeCommand(Commands.Refresh);
           }
 
+          // Finish working on a branch
+          //
           if (action === "finishWork") {
-            console.log("finishWork");
             const gitExtension = vscode.extensions.getExtension<GitExtension>(
               "vscode.git"
             );
@@ -231,7 +236,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage("git fetch");
+              // vscode.window.showInformationMessage("git fetch");
 
               try {
                 await repo.checkout(value);
@@ -240,7 +245,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git checkout ${value}`);
+              // vscode.window.showInformationMessage(`git checkout ${value}`);
 
               try {
                 await repo.push();
@@ -248,7 +253,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage("git push");
+              // vscode.window.showInformationMessage("git push");
 
               try {
                 await repo.checkout("master");
@@ -257,7 +262,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git checkout master`);
+              // vscode.window.showInformationMessage(`git checkout master`);
 
               try {
                 await repo.deleteBranch(value);
@@ -266,18 +271,20 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(err.stderr);
                 return;
               }
-              vscode.window.showInformationMessage(`git branch -D ${value}`);
+              // vscode.window.showInformationMessage(`git branch -D ${value}`);
 
-              vscode.env.openExternal(vscode.Uri.parse(`https://dev.azure.com/vetdrive/vetdrive/_git/${currentRepo}/pullrequestcreate?sourceRef=${encodeURIComponent(value)}`));
+              // Open the Pull Request URL
+              //
+              vscode.env.openExternal(vscode.Uri.parse(`${currentOrganization.uri}/${currentProject.name}/_git/${currentRepo}/pullrequestcreate?sourceRef=${encodeURIComponent(value)}`));
 
+              // Update the work item to "Resolved"
+              //
               try {
-                let r = await witApi.updateWorkItem(null, [{
+                await witApi.updateWorkItem(null, [{
                   "op": "replace",
                   "path": `/fields/System.State`,
                   "value": "Resolved"
                 }], id);
-                console.log("R")
-                console.log(r);
               } catch (err) {
                 console.log(err);
                 vscode.window.showErrorMessage(err.stderr);
@@ -286,8 +293,12 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
               return;
             }
+            vscode.window.showInformationMessage(`Done`);
+            await vscode.commands.executeCommand(Commands.Refresh);
           }
 
+          // Checkout a branch - not used by itself any more I think...
+          //
           if (action === "checkout") {
             const gitExtension = vscode.extensions.getExtension<GitExtension>(
               "vscode.git"
@@ -304,16 +315,18 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
               }
               return;
             }
+            await vscode.commands.executeCommand(Commands.Refresh);
           }
 
+          // Create a development branch for the work item
+          //
           if (action === "createBranch") {
-            console.log("createBranch");
-            console.log(id);
-            console.log(value);
 
+            // value is the name of the work item
+            // We replace all non-alphanumeric or space chars, and replace spaces with -
+            // 
             value = value.toLowerCase().replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\ /g, "-");
-            let name = `feature/${id}-${value}`;
-            console.log(name);
+            let name = `${branchPrefix}${id}-${value}`;
             name = await vscode.window.showInputBox({
               value: name,
               prompt: "Enter branch name"
@@ -322,17 +335,25 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
             const gitApi = await webApi.getGitApi();
 
+            // We need to branch off the HEAD of master
+            // So, we need to get that commit id
+            //
             const master = await gitApi.getBranch(currentRepo, "master");
-            console.log("MASTER")
-            console.log({ master });
             const head = master.commit.commitId;
 
+            // This creates the branch
+            //
             const result = await gitApi.updateRefs([{
               name: `refs/heads/${name}`,
               newObjectId: head,
+
+              // Just running the command in the browser, it seems to send this oldObjectId value, so 
+              // just doing that here also...
+              // (a lot of these APIs are not well documented...)
+              //
               oldObjectId: "0000000000000000000000000000000000000000"
             }], currentRepo, currentProject.id);
-            console.log({ result });
+
             if (!result[0].success) {
               vscode.window.showErrorMessage("Failed to create remote branch");
               return;
@@ -340,8 +361,9 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
             let url = encodeURIComponent(`${currentProject.id}/${currentRepo}/GB${name}`);
             url = `vstfs:///Git/Ref/${url}`;
-            console.log(url)
 
+            // This links the branch to the work item
+            //
             await witApi.updateWorkItem(null, [{
               "op": "add",
               "path": `/relations/-`,
@@ -354,86 +376,46 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
               }
             }], id);
 
+            await vscode.commands.executeCommand(Commands.Refresh);
             return;
           }
 
-          if (action === "rebase") {
-            const gitExtension = vscode.extensions.getExtension<GitExtension>(
-              "vscode.git"
-            );
-            if (!gitExtension) return;
-            const git = gitExtension.exports.getAPI(1);
-            if (git.repositories.length) {
-              const repo = git.repositories[0];
-              await repo.fetch();
+          if (action === "updateField") {
+            // vscode.window.showErrorMessage(`[${id}] Updating ${field} to: ${value}`);
+
+            if (field === "System.Description") {
               try {
-                await repo.checkout(id);
-                const { spawnSync } = require('child_process');
-                const decoder = new TextDecoder();
-                const rebase = spawnSync('git', ['rebase', 'origin/master'], {
-                  cwd: vscode.workspace.rootPath
-                });
-                // const rebase = spawnSync('git', ['branch'], {
-                //   cwd: vscode.workspace.rootPath
-                // });
-
-                console.log("REBASE");
-                console.log({ rebase });
-                let { stderr, stdout, error } = rebase;
-                stderr = decoder.decode(stderr);
-                stdout = decoder.decode(stdout);
-                if (stderr) {
-                  vscode.window.showErrorMessage(stderr);
-                }
-                console.log(stderr);
-                console.log(stdout);
-                console.log(error);
-
-                // for (let out of rebase.output) {
-                //   console.log(out);
-                //   if (out && out.data) console.log(decoder.decode(new Uint8Array(out.data)));
-                // }
+                let showdown = require("showdown");
+                let converter = new showdown.Converter();
+                value = converter.makeHtml(value);
               } catch (err) {
-                console.log(err);
-
-                vscode.window.showErrorMessage(err.stderr);
-                return;
+                console.error(err);
               }
-              vscode.window.showInformationMessage("Done")
-              return;
             }
+
+            await witApi.updateWorkItem(null, [{
+              "op": "replace",
+              "path": `/fields/${field}`,
+              "value": value
+            }], id);
+
+            await vscode.commands.executeCommand(Commands.Refresh);
           }
 
-          vscode.window.showErrorMessage(`[${id}] Updating ${field} to: ${value}`);
+          // There were issues with doing this, since the initial args is captured in the closure
+          // of the webview onDidReceiveMessage()
+          //
+          // if (field === "System.Title") {
+          //   panel.args.workItemTitle = value;
+          // }
+          // if (field === "System.Description") {
+          //   panel.args.workItemDescription = value;
+          // }
+          // if (field === "Microsoft.VSTS.Scheduling.StoryPoints") {
+          //   panel.args.workItemStoryPoints = value;
+          // }
+          // panel.webview.html = await getWebviewContent(panel.args);
 
-          if (field === "System.Description") {
-            try {
-              let showdown = require("showdown");
-              let converter = new showdown.Converter();
-              value = converter.makeHtml(value);
-            } catch (err) {
-              console.error(err);
-            }
-          }
-
-          await witApi.updateWorkItem(null, [{
-            "op": "replace",
-            "path": `/fields/${field}`,
-            "value": value
-          }], id);
-
-          if (field === "System.Title") {
-            args.workItemTitle = value;
-          }
-          if (field === "System.Description") {
-            args.workItemDescription = value;
-          }
-          if (field === "Microsoft.VSTS.Scheduling.StoryPoints") {
-            args.workItemStoryPoints = value;
-          }
-          panel.webview.html = await getWebviewContent(args);
-
-          await vscode.commands.executeCommand(Commands.Refresh);
         },
         undefined,
         context.subscriptions
@@ -442,22 +424,9 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
     panel.reveal();
     panel.webview.html = await getWebviewContent(args);
+    // panel.args = args;
 
     async function getWebviewContent(workItem = {}) {
-
-      // let branch = null;
-      // if (workItem.workItemBranch) {
-      //   const currentOrganization = getCurrentOrganization();
-      //   const currentProject = getCurrentProject();
-      //   const webApi = await getWebApiForOrganization(currentOrganization);
-      //   const gitApi = await webApi.getGitApi();
-
-      //   // let branch_ = await gitApi.getBranch("cd9b62b1-9771-4bf6-a465-2730fbf73b6e", "release/3.4.35");
-      //   let branch_ = await gitApi.getBranch("app.vetdrive.co", "release/3.4.35", currentProject);
-      //   console.log("BRANCH");
-      //   console.log(branch_);
-      // }
-
       const { workItemAssignedTo = {} } = workItem;
       const AssignedToName = workItemAssignedTo.displayName || "Unassigned";
       const AssignedToEmail = workItemAssignedTo.uniqueName || "";
@@ -468,9 +437,6 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
         var TurndownService = require('turndown')
         var turndownService = new TurndownService()
         markdown = turndownService.turndown(workItem.workItemDescription || "");
-        console.log("description:")
-        console.log(workItem.workItemDescription);
-        console.log(markdown);
       } catch (err) { console.error(err) }
 
       const state = workItem.workItemState;
@@ -937,6 +903,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
                   const vscode = acquireVsCodeApi();
                   document.getElementById("input-title").addEventListener("change", (ev) => {
                     vscode.postMessage({
+                      action: "updateField",
                       field: "System.Title",
                       id: ${workItem.workItemId},
                       value: ev.currentTarget.value
@@ -945,6 +912,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
                   document.getElementById("input-description").addEventListener("change", (ev) => {
                     vscode.postMessage({
+                      action: "updateField",
                       field: "System.Description",
                       id: ${workItem.workItemId},
                       value: ev.currentTarget.value
@@ -962,25 +930,10 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
                   document.getElementById("input-points").addEventListener("change", (ev) => {
                     vscode.postMessage({
+                      action: "updateField",
                       field: "Microsoft.VSTS.Scheduling.StoryPoints",
                       id: ${workItem.workItemId},
                       value: ev.currentTarget.value
-                    });
-                  });
-
-                  document.getElementById("checkout-branch").addEventListener("click", (ev) => {
-                    const id = ev.currentTarget.dataset.id;
-                    vscode.postMessage({
-                      action: "checkout",
-                      id: id
-                    });
-                  });
-
-                  document.getElementById("rebase-branch").addEventListener("click", (ev) => {
-                    const id = ev.currentTarget.dataset.id;
-                    vscode.postMessage({
-                      action: "rebase",
-                      id: id
                     });
                   });
 
@@ -1019,140 +972,16 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
     return;
   });
 
-
-  vscode.commands.registerCommand(Commands.CheckoutBranch, async args => {
-    console.log("Checkout Branch")
-    console.log({ args });
-
-    let { workItemId, label = "" } = args;
-    label = label.toLowerCase().replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\ /g, "-");
-
-    await vscode.env.clipboard.writeText(label);
-
-    const gitExtension = vscode.extensions.getExtension<GitExtension>(
-      "vscode.git"
-    );
-    if (!gitExtension) return;
-    const git = gitExtension.exports.getAPI(1);
-
-    if (git.repositories.length) {
-      const repo = git.repositories[0];
-      await repo.fetch();
-      const branch = `feature/${label}`;
-      try {
-        // await repo.checkout("release/3.4.35");
-        await repo.checkout(branch);
-      } catch (err) {
-        console.error(err);
-        console.log("Branch not found - creating new from master");
-        console.log("Checkout master...");
-        try {
-          await repo.checkout("master");
-        } catch (err) {
-          console.error(err);
-          return;
-        }
-        console.log("Git pull...");
-        try {
-          await repo.pull();
-        } catch (err) {
-          console.error(err);
-          return;
-        }
-        try {
-          console.log(`Create branch: ${branch}`);
-          await repo.createBranch(branch, true);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-
-    }
-
-
-    // await vscode.commands.executeCommand("git.branchFrom");
-
-    // await vscode.env.clipboard.writeText(label);
-
-
-    return;
-
-    // const workItemId = args.workItemId || args;
-    // const gitExtension = vscode.extensions.getExtension<GitExtension>(
-    //   "vscode.git"
-    // );
-
-    // //track mention work item telemetry event
-    // trackTelemetryEvent(Commands.WorkItemMention);
-
-    // mentionWorkItem(gitExtension, workItemId);
-  });
-
-
+  // This is the "#" icon on the tree items...
+  // Just copy the work item id and title to clipboard...
+  //
   vscode.commands.registerCommand(Commands.WorkItemMention, async args => {
-    console.log({ args });
-
-    let { workItemId, label = "" } = args;
-    label = label.toLowerCase().replace(/\ /g, "-");
-
-    await vscode.env.clipboard.writeText(label);
-
-    const gitExtension = vscode.extensions.getExtension<GitExtension>(
-      "vscode.git"
-    );
-    if (!gitExtension) return;
-    const git = gitExtension.exports.getAPI(1);
-    if (git.repositories.length) {
-      const repo = git.repositories[0];
-      await repo.fetch();
-      const branch = `feature/${label}`;
-      try {
-        // await repo.checkout("release/3.4.35");
-        await repo.checkout(branch);
-      } catch (err) {
-        console.error(err);
-        console.log("Branch not found - creating new from master");
-        console.log("Checkout master...");
-        try {
-          await repo.checkout("master");
-        } catch (err) {
-          console.error(err);
-        }
-        console.log("Git pull...");
-        try {
-          await repo.pull();
-        } catch (err) {
-          console.error(err);
-        }
-        try {
-          console.log(`Create branch: ${branch}`);
-          await repo.createBranch(branch, true);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-
-    }
-
-
-    // await vscode.commands.executeCommand("git.branchFrom");
-
-    // await vscode.env.clipboard.writeText(label);
-
-
+    let { workItemId, workItemTitle } = args;
+    await vscode.env.clipboard.writeText(`#${workItemId} - ${workItemTitle}`);
     return;
-
-    // const workItemId = args.workItemId || args;
-    // const gitExtension = vscode.extensions.getExtension<GitExtension>(
-    //   "vscode.git"
-    // );
-
-    // //track mention work item telemetry event
-    // trackTelemetryEvent(Commands.WorkItemMention);
-
-    // mentionWorkItem(gitExtension, workItemId);
   });
 
+  // This is the previous function...
   //
   // Configuration
   //

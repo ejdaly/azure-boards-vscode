@@ -21,6 +21,7 @@ export interface IConfiguration {
   queries: IQuery[];
   currentRepo: String;
   currentUser: String;
+  branchPrefix: String;
 }
 
 export interface IProject {
@@ -43,7 +44,8 @@ export function getConfiguration(): IConfiguration {
     currentProject: config.get("current-project", undefined),
     queries: config.get("queries", []),
     currentRepo: config.get("current-repo", ""),
-    currentUser: config.get("current-user", "")
+    currentUser: config.get("current-user", ""),
+    branchPrefix: config.get("branch-prefix", "feature/"),
   };
 }
 
@@ -147,6 +149,10 @@ export function getCurrentRepo(): String | undefined {
 
 export function getCurrentUser(): String | undefined {
   return getConfiguration().currentUser;
+}
+
+export function getBranchPrefix(): String | undefined {
+  return getConfiguration().branchPrefix;
 }
 
 export function compareOrganizations(

@@ -20,6 +20,8 @@ const _ = require("underscore");
 export class MyWorkProvider {
   private workItemTypeProvider = new WorkItemTypeProvider();
 
+  // This should probably be called "getWorkItemsForQuery", and "type" should be "queryId"
+  //
   async getMyWorkItems(type: string): Promise<WorkItemComposite[]> {
     const currentOrganization = getCurrentOrganization();
     if (!currentOrganization) {
@@ -33,39 +35,21 @@ export class MyWorkProvider {
 
     const webApi = await getWebApiForOrganization(currentOrganization);
     const client = webApi.rest.client;
-
-    const baseUrl =
-      currentOrganization.uri +
-      "/" +
-      currentProject.id +
-      "/_apis/work/predefinedQueries/";
-
-    // const url = baseUrl + type + "?$top=50&includeCompleted=false";
-    // const url = `${currentOrganization.uri}/${currentProject.id}/_apis/work/`;
-    // const url = "https://dev.azure.com/vetdrive/vetdrive/_apis/wit/queries/047c9f6c-0393-43e0-bb27-f5502ee84cf4";
-
-    // const baseUrl =
-    //   currentOrganization.uri +
-    //   "/" +
-    //   currentProject.id +
-    //   "/_apis/work/teamsettings/iterations/";
-
-    // const url = "https://dev.azure.com/vetdrive/vetdrive/vetdrive Team/_apis/work/teamsettings/iterations/Iteration 1/workitems";
-
-    // const url = "https://dev.azure.com/vetdrive/vetdrive/_apis/work/teamsettings/iterations/482d7695-6e09-420c-9201-3453d1e2d670/workitems";
-
-    // const url = "https://dev.azure.com/vetdrive/vetdrive/vetdrive%20Team/_apis/wit/wiql/a930d01f-0e50-4a6f-95c2-6b6f0a2ae868";
-    // const url = "https://dev.azure.com/vetdrive/vetdrive/_apis/wit/wiql/a930d01f-0e50-4a6f-95c2-6b6f0a2ae868";
-    const url = "https://dev.azure.com/vetdrive/vetdrive/_apis/wit/wiql/" + type;
+    const url = `${currentOrganization.uri}/${currentProject.name}/_apis/wit/wiql/${type}`;
 
     const res: IHttpClientResponse = await client.get(url); //needed to call basic client api
     const witApi = await webApi.getWorkItemTrackingApi(); //needed to call wit api
 
     const body: string = await res.readBody();
     const resp = JSON.parse(body);
-    console.log("resp");
-    console.log(resp)
     const response = [];
+
+    // If the query is nested / hierarchical, the response will have workItemRelations
+    // If flat list, then we get workItems
+    // Both are pretty-much the same
+    // We don't really care about the hierarchy encoded in the workItemRelations, because
+    // we are building the tree view from just the .parent attribute of each item
+    //
     if (resp.workItemRelations) {
       for (let r of resp.workItemRelations) {
         response.push(r.target)
@@ -76,11 +60,8 @@ export class MyWorkProvider {
       }
     }
 
-    console.log({ response });
-
     // const myWorkResponse: IMyWorkResponse = JSON.parse(body);
     const myWorkResponse: IMyWorkResponse = { results: response };
-    console.log({ myWorkResponse });
 
     // get work item icons from work item provider
     const icons = this.workItemTypeProvider
@@ -93,15 +74,11 @@ export class MyWorkProvider {
         ? myWorkResponse.results.map(x => x.id)
         : [];
 
-    // get work items from id's
-    // const workItems: WorkItem[] =
-    //   (await witApi.getWorkItems(
-    //     workItemIds,
-    //     ["System.Id", "System.Title", "System.WorkItemType", "System.Description", "Microsoft.VSTS.Common.AcceptanceCriteria", "System.State", "System.AssignedTo", "Microsoft.VSTS.Scheduling.StoryPoints", "System.Parent", "System.Reason", "System.RelatedLinks", "System.LinkedFiles"],
-    //     undefined,
-    //     WorkItemExpand.Links
-    //   )) || [];
-
+    // The above query fetches just Ids and Urls for the work items
+    // This query populates all the fields
+    // We need the .relations propertly, and it seems we need to use WorkItemExpand.All
+    // for that (which also gets all the fields...)
+    //
     const workItems: WorkItem[] =
       (await witApi.getWorkItems(
         workItemIds, undefined, undefined,
@@ -117,25 +94,24 @@ export class MyWorkProvider {
       workItemId => workItemsMap[workItemId]
     );
 
-    console.log("workitems")
-    console.log({ workItems });
-    console.log({ orderedWorkItems });
-
+    // The base64 representation of user images
+    // We need to fetch these using the webApi, since these require authentication, so we can't
+    // just pass a url to the webview...
+    //
     const base64s = {};
 
     for (let wi of orderedWorkItems) {
       const AssignedTo = wi.fields["System.AssignedTo"];
       if (AssignedTo && AssignedTo.imageUrl) {
-        console.log(AssignedTo.imageUrl);
-
         let base64 = base64s[AssignedTo.uniqueName] || "";
         if (!base64) {
-          // const resp = await client.get(AssignedTo.imageUrl);
+
+          // Note: using webApi.rest.client didn't seem to work here, but using the webApi.rest .get method
+          // seems to return the data correctly...
+          //
           const resp = await webApi.rest.get(AssignedTo.imageUrl);
-          console.log({ resp });
           if (resp && resp.result) {
             base64 = `data:${resp.result.imageType};base64,${resp.result.imageData}`;
-            console.log({ base64 });
             base64s[AssignedTo.uniqueName] = base64;
           }
         }
@@ -143,10 +119,25 @@ export class MyWorkProvider {
       }
     }
 
+    // Getting the linked branches for a work item is a little messy. 
+    // The format of the branch urls is:
+    // vstfs:///Git/Ref/80af8dad-aacc-1122-2233-85e619864277%2Fcd9b62b1-9771-aaaa-bbbb-2730fbf73b6e%2FGBbug%2Ftest-bug
+    // So it's like:
+    //    vstfs:///Git/Ref/
+    //    80af8dad-aacc-1122-2233-85e619864277 (org id)
+    //    cd9b62b1-9771-aaaa-bbbb-2730fbf73b6e (repo id)
+    //    GB (I presume stands for "git branch" or something like that...
+    //    bug%2Ftest-bug (the branch name)
+    //
+    // And the part after "vstfs:///Git/Ref/" is URIEncoded...
+    //
     const gitApi = await webApi.getGitApi();
     const branches = {};
     for (let wi of orderedWorkItems) {
       const relations = wi.relations || [];
+
+      // We just pick the first linked branch
+      //
       let branch = _.find(relations, (r) => {
         return r.attributes && r.attributes.name === "Branch"
       });
@@ -158,9 +149,6 @@ export class MyWorkProvider {
             let branch_name = branch.slice(idx + 3);
             let branch_repo = branch.split("/")[6];
             let branch_ = await gitApi.getBranch(branch_repo, branch_name);
-            console.log("BRANCH_")
-            console.log(branch_);
-            console.log({ branch_name, branch_repo });
             branches[branch] = branch_;
           }
         }
@@ -172,10 +160,7 @@ export class MyWorkProvider {
     trackTelemetryEvent(type);
 
     // map orderedWorkItems into our composite to include the right icon
-    // return orderedWorkItems.map(wi => new WorkItemComposite(wi, icons));
-
     const work_items_composite = orderedWorkItems.map(wi => new WorkItemComposite(wi, icons));
-    console.log({ work_items_composite });
     return work_items_composite;
   }
 }
