@@ -8,11 +8,19 @@ export interface IOrganization {
   uri: string;
 }
 
+export interface IQuery {
+  id: string;
+  name: string;
+}
+
 export interface IConfiguration {
   currentOrganization: IOrganization | undefined;
   currentProject: IProject | undefined;
 
   organizations: IOrganization[];
+  queries: IQuery[];
+  currentRepo: String;
+  currentUser: String;
 }
 
 export interface IProject {
@@ -32,7 +40,10 @@ export function getConfiguration(): IConfiguration {
   return {
     organizations: config.get("organizations", []),
     currentOrganization: config.get("current-organization", undefined),
-    currentProject: config.get("current-project", undefined)
+    currentProject: config.get("current-project", undefined),
+    queries: config.get("queries", []),
+    currentRepo: config.get("current-repo", ""),
+    currentUser: config.get("current-user", "")
   };
 }
 
@@ -110,6 +121,10 @@ export function getCurrentOrganization(): IOrganization | undefined {
   return getConfiguration().currentOrganization;
 }
 
+export function getQueries(): IQuery[] | undefined {
+  return getConfiguration().queries;
+}
+
 /**
  * Set the current project
  */
@@ -124,6 +139,14 @@ export async function setCurrentProject(
  */
 export function getCurrentProject(): IProject | undefined {
   return getConfiguration().currentProject;
+}
+
+export function getCurrentRepo(): String | undefined {
+  return getConfiguration().currentRepo;
+}
+
+export function getCurrentUser(): String | undefined {
+  return getConfiguration().currentUser;
 }
 
 export function compareOrganizations(

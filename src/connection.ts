@@ -9,10 +9,16 @@ export async function getWebApiForOrganization(
   organization: IOrganization
 ): Promise<DevOpsClient.WebApi> {
   const token = await getTokenForOrganization(organization);
+  console.log("token");
+  console.log(token);
   if (!token) {
     throw new Error("Cannot get token for organization");
   }
 
   const handler = DevOpsClient.getHandlerFromToken(token);
+  console.log("handler")
+  console.log({
+    handler
+  })
   return new DevOpsClient.WebApi(organization.uri, handler);
 }
