@@ -46,10 +46,15 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
       // TODO: these are hardcoded...
       //
       // @ts-ignore
-      let [type] = await vscode.window.showQuickPick(['Bug', 'Issue', 'Epic', 'Feature', 'Story', 'Task'], {
+      let type_ = await vscode.window.showQuickPick(['Bug', 'Issue', 'Epic', 'Feature', 'Story', 'Task'], {
         prompt: "Work Item Type",
         canPickMany: false
-      });
+      }) || [];
+
+      // EJD: for some reason the .showQuickPick is expected to return an array, but actually returns a string here.
+      // So we pretend we are getting an array and "cast" it to a string so as not to cause a typescript error...
+      //
+      let type = `${type_}`;
       if (!type) return;
 
       const title = await vscode.window.showInputBox({

@@ -24,7 +24,11 @@ export async function getTokenUsingDeviceFlow(
   };
   const tokenOptions: IDeviceFlowTokenOptions = {
     tokenDescription: `Azure Boards VSCode extension: ${organization.uri}`,
-    tokenScope: "vso.project vso.work"
+
+    // EJD: remove this scope. Was getting 401 errors on some queries...
+    // Note: the Azure Repos extension creates a "Full Access" PAT also...
+    //
+    // tokenScope: "vso.project vso.work"
   };
   const dfa: DeviceFlowAuthenticator = new DeviceFlowAuthenticator(
     organization.uri,
@@ -36,9 +40,8 @@ export async function getTokenUsingDeviceFlow(
   // To sign in, use a web browser to open the page https://aka.ms/devicelogin and enter the code F3VXCTH2L to authenticate.
   const value = await vscode.window.showInputBox({
     value: details.UserCode,
-    prompt: `${Resources.Configuration_DeviceFlowCopyCode} (${
-      details.VerificationUrl
-    })`,
+    prompt: `${Resources.Configuration_DeviceFlowCopyCode} (${details.VerificationUrl
+      })`,
     placeHolder: undefined,
     password: false
   });
