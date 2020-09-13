@@ -101,8 +101,10 @@ export class MyWorkProvider {
     const base64s = {};
 
     for (let wi of orderedWorkItems) {
+      // @ts-ignore
       const AssignedTo = wi.fields["System.AssignedTo"];
       if (AssignedTo && AssignedTo.imageUrl) {
+        // @ts-ignore
         let base64 = base64s[AssignedTo.uniqueName] || "";
         if (!base64) {
 
@@ -111,7 +113,9 @@ export class MyWorkProvider {
           //
           const resp = await webApi.rest.get(AssignedTo.imageUrl);
           if (resp && resp.result) {
+            // @ts-ignore
             base64 = `data:${resp.result.imageType};base64,${resp.result.imageData}`;
+            // @ts-ignore
             base64s[AssignedTo.uniqueName] = base64;
           }
         }
@@ -138,21 +142,25 @@ export class MyWorkProvider {
 
       // We just pick the first linked branch
       //
+      // @ts-ignore
       let branch = _.find(relations, (r) => {
         return r.attributes && r.attributes.name === "Branch"
       });
       if (branch) {
         branch = decodeURIComponent(branch.url || "");
+        // @ts-ignore
         if (!branches[branch]) {
           const idx = branch.indexOf("/GB");
           if (idx !== -1) {
             let branch_name = branch.slice(idx + 3);
             let branch_repo = branch.split("/")[6];
             let branch_ = await gitApi.getBranch(branch_repo, branch_name);
+            // @ts-ignore
             branches[branch] = branch_;
           }
         }
       }
+      // @ts-ignore
       wi.workItemBranch = branches[branch] || {};
     }
 

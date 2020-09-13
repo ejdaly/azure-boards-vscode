@@ -63,6 +63,7 @@ export class WorkItemTreeNodeProvider
     // element.getWorkItemData() is where all the fetching from Azure API happens. We populate
     // all the WorkItems for each Query, and use that below for each tree level...
     //
+    // @ts-ignore
     if (!element.data) {
       return element.getWorkItemData();
     }
@@ -163,6 +164,7 @@ export class TreeNodeChildWorkItem extends TreeNodeParent {
       // all we need to do is find the elements of this.data that have .workItemParent equal to our .workItemId
       //
       const children = this.data.filter((wi = {}) => {
+        // @ts-ignore
         return (wi.workItemParent == this.workItemId);
       });
 
@@ -176,6 +178,7 @@ export class TreeNodeChildWorkItem extends TreeNodeParent {
       // it's children..
       // Could be more efficient / cleaner but it's fine for now...
       //
+      // @ts-ignore
       return children.map(wi => new WorkItemNode(wi, this.data));
     } catch (e) {
       // track telemetry exception
@@ -193,6 +196,7 @@ export class WorkItemNode extends TreeNodeParent {
   public readonly iconPath: vscode.Uri;
   public readonly editUrl: string;
 
+  // @ts-ignore
   constructor(workItemComposite: WorkItemComposite, data) {
 
     // So, we want to add the .workItemStateIcon as a prefix to the label of the tree item
@@ -202,11 +206,13 @@ export class WorkItemNode extends TreeNodeParent {
 
     this.iconPath = vscode.Uri.parse(workItemComposite.workItemIcon);
     this.workItemId = +workItemComposite.workItemId;
+    // @ts-ignore
     this.workItemTitle = workItemComposite.workItemTitle;
     this.workItemType = workItemComposite.workItemType;
     this.editUrl = workItemComposite.url;
     this.contextValue = "work-item";
 
+    // @ts-ignore
     const assignedTo = (workItemComposite.workItemAssignedTo || {}).displayName || "Unassigned";
 
     // this.description is slighly smaller text, just after the main label
@@ -218,16 +224,20 @@ export class WorkItemNode extends TreeNodeParent {
 
     // Recursively pass a reference to the collection of work items
     //
+    // @ts-ignore
     this.data = data;
 
     // Default is vscode.TreeItemCollapsibleState.Collapsed
     // But if there are no children - we don't want that...
     // I think we have to do this in the constructor (I don't think it's possible to change that state later..)
     // 
+    // @ts-ignore
     this.children = data.filter((wi = {}) => {
+      // @ts-ignore
       const { workItemParent } = wi;
       return (workItemParent == this.workItemId);
     });
+    // @ts-ignore
     if (!this.children.length) this.collapsibleState = vscode.TreeItemCollapsibleState.None;
 
     this.command = {
@@ -239,6 +249,7 @@ export class WorkItemNode extends TreeNodeParent {
 
   async getWorkItemChildren(): Promise<TreeNodeParent[]> {
     try {
+      // @ts-ignore
       return this.children.map(wi => new WorkItemNode(wi, this.data));
     } catch (e) {
       // track telemetry exception

@@ -80,6 +80,7 @@ export class WorkItemComposite {
     // workItems don't have this property, but we just patch it on for convenience
     // Could pass it into the constructor as a parameter there I guess...?
     //
+    // @ts-ignore
     this.workItemBranch = workItem.workItemBranch;
 
     //get index of icon from list of available icons for the work item type

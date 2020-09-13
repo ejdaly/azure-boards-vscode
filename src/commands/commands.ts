@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 import * as vscode from "vscode";
-import { GitExtension, Remote } from "../externals/git";
+import { GitExtension } from "../externals/git";
 import { trackTelemetryEvent } from "../util/telemetry";
 
 import {
@@ -37,7 +37,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(Commands.WorkItemCreate, async args => {
+    vscode.commands.registerCommand(Commands.WorkItemCreate, async () => {
       const currentOrganization = getCurrentOrganization();
       if (!currentOrganization) return;
       const currentProject = getCurrentProject();
@@ -45,10 +45,10 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
       // TODO: these are hardcoded...
       //
-      const type = await vscode.window.showQuickPick([
-        "Bug", "Issue", "Epic", "Feature", "Story", "Task"
-      ], {
-        prompt: "Work Item Type"
+      // @ts-ignore
+      let [type] = await vscode.window.showQuickPick(['Bug', 'Issue', 'Epic', 'Feature', 'Story', 'Task'], {
+        prompt: "Work Item Type",
+        canPickMany: false
       });
       if (!type) return;
 
@@ -63,6 +63,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
       const webApi = await getWebApiForOrganization(currentOrganization);
       const witApi = await webApi.getWorkItemTrackingApi();
+
       await witApi.createWorkItem(null, [{
         "op": "add",
         "path": `/fields/System.Title`,
@@ -85,9 +86,11 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
   // reference to the webview
   //
-  var panel;
+  // @ts-ignore
+  var panel = null;
   vscode.commands.registerCommand(Commands.WorkItemPreview, async args => {
 
+    // @ts-ignore
     if (!panel) {
 
       panel = vscode.window.createWebviewPanel(
@@ -275,6 +278,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
 
               // Open the Pull Request URL
               //
+              // @ts-ignore
               vscode.env.openExternal(vscode.Uri.parse(`${currentOrganization.uri}/${currentProject.name}/_git/${currentRepo}/pullrequestcreate?sourceRef=${encodeURIComponent(value)}`));
 
               // Update the work item to "Resolved"
@@ -327,6 +331,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
             // 
             value = value.toLowerCase().replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\ /g, "-");
             let name = `${branchPrefix}${id}-${value}`;
+            // @ts-ignore
             name = await vscode.window.showInputBox({
               value: name,
               prompt: "Enter branch name"
@@ -338,11 +343,14 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
             // We need to branch off the HEAD of master
             // So, we need to get that commit id
             //
+            // @ts-ignore
             const master = await gitApi.getBranch(currentRepo, "master");
+            // @ts-ignore
             const head = master.commit.commitId;
 
             // This creates the branch
             //
+            // @ts-ignore
             const result = await gitApi.updateRefs([{
               name: `refs/heads/${name}`,
               newObjectId: head,
@@ -352,7 +360,9 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
               // (a lot of these APIs are not well documented...)
               //
               oldObjectId: "0000000000000000000000000000000000000000"
-            }], currentRepo, currentProject.id);
+            }],
+              // @ts-ignore
+              currentRepo, currentProject.id);
 
             if (!result[0].success) {
               vscode.window.showErrorMessage("Failed to create remote branch");
@@ -422,11 +432,15 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
       );
     }
 
+    // @ts-ignore
     panel.reveal();
+    // @ts-ignore
     panel.webview.html = await getWebviewContent(args);
     // panel.args = args;
 
-    async function getWebviewContent(workItem = {}) {
+    // @ts-ignore
+    async function getWebviewContent(workItem) {
+      // @ts-ignore
       const { workItemAssignedTo = {} } = workItem;
       const AssignedToName = workItemAssignedTo.displayName || "Unassigned";
       const AssignedToEmail = workItemAssignedTo.uniqueName || "";
@@ -436,9 +450,11 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
       try {
         var TurndownService = require('turndown')
         var turndownService = new TurndownService()
+        // @ts-ignore
         markdown = turndownService.turndown(workItem.workItemDescription || "");
       } catch (err) { console.error(err) }
 
+      // @ts-ignore
       const state = workItem.workItemState;
       var state_color = "#007ACC";
       if (state === "New") {
@@ -447,6 +463,7 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
         state_color = "#339933";
       }
 
+      // @ts-ignore
       const hasBranch = !!(workItem.workItemBranch && workItem.workItemBranch.name);
 
       return /*html*/`
@@ -985,6 +1002,8 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
   //
   // Configuration
   //
+
+  /*
   function mentionWorkItem(
     gitExtension: vscode.Extension<GitExtension> | undefined,
     workItemId: number
@@ -1055,4 +1074,5 @@ export function registerGlobalCommands(context: vscode.ExtensionContext) {
       return mentionSyntaxPrefix;
     }
   }
+  */
 }
